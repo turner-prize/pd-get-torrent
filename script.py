@@ -12,11 +12,12 @@ import datetime
 import time
 from bs4 import BeautifulSoup
 import requests
+from rarbgapi import RarbgAPI
 
 # Replace hostname, transmission-username and transmission-password
 
-TVDB = "empty .txt file"
-MyDir = "final folder"
+TVDB = "C:\Users\Turner_prize\Desktop\TVDBList2.txt"
+MyDir = "D:\Dan\TV"
 
 
 def AmendList(ShowList):
@@ -78,8 +79,8 @@ def ShowRequest(website):
     RegDate = re.compile(r'\d{1,2}_\d{1,2}_\d{4}')
     with requests.Session() as c:
         url = "https://www.pogdesign.co.uk/cat/login"
-        uName = "username"
-        pWord = "password"
+        uName = ""
+        pWord = ""
         c.get(url)
         login_data = dict(username=uName, password=pWord, sub_login="")
         c.post(url, data=login_data, headers={"Referer":"https://www.pogdesign.co.uk/cat/login"})
@@ -130,16 +131,10 @@ def AddToList(NewShow):
 
 
 def GetTorrent(MyShow):
-    r = requests.get("https://thepiratebay.org/search/" + MyShow +"/0/99/208")
-    soop = BeautifulSoup(r.content, "lxml")
-    if "No hits." in soop.text:
-        print "No Torrents for " + MyShow + " found."
-    else:
-        for a in soop.find_all('a', href=True, title='Download this torrent using magnet'):
-            if a:
-                os.startfile(a['href'])
-                AddToList(MyShow)
-                break
+    x = RarbgAPI()
+    myresponse = x.search(MyShow,category=41)
+    os.startfile(myresponse[0].download)
+    AddToList(MyShow)
 
 ShowList = CreateShowList(MyDir)
 
