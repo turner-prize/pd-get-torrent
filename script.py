@@ -1,104 +1,167 @@
-#current working version
+#!/bin/python
 
-
-#the below imports different libraries, allowing different functions to happen. 
-#Requests is for sending and receving html requests. I use both GET and POST in the below script to pinch the HTML from thepiratebay and to log into pogdesign
-#datetime is a library for referencing dates, used for editing the date format on pogdesign into something the code can read and compare to todays date.
-#Beautifulsoup is for scraping and parsing the html on the website referenced by the get request.
-#os allows you to mess with your os in different ways, basic stuff like getting file names and sizes, in this case i use it to open the torrent link, which auto opens my 
-#bit torrent client if its not already open.
-#time is a library for referencing time, i use it to pause the script for 7 seconds each loop, to allow the get request to refresh
-
+import os
+import re
+import json
 import requests
 import datetime
-from bs4 import BeautifulSoup
-import os
 import time
+from bs4 import BeautifulSoup
+#from collections import Counter
 
-#this is a custom function which goes and searches pirate bay for the torrent that is referenced (later), parses the html to find the magnet link of the top torrent, and
-#uses os.startfile to open it.
 
-def GetTorrent(MyShow):
-    r = requests.get("https://thepiratebay.org/search/" + MyShow +"/0/99/208")
-    soop = BeautifulSoup(r.content)
-    for j in soop.find_all("div",class_="detName"):
-        if j:
-            break
-    for a in soop.find_all('a', href=True, title='Download this torrent using magnet'):
-        if a:
-            break
-    os.startfile(a['href'])
-
-	
-#logs into my pogdesign account using requests to post the login and password.
-	
-with requests.Session() as c:
-    url = "https://www.pogdesign.co.uk/cat/login"
-    #enter your username and password as string below.
-    uName = ""
-    pWord = ""
-    c.get(url)
-    login_data = dict(username=uName, password=pWord, sub_login="")
-    c.post(url, data=login_data, headers={"Referer":"https://www.pogdesign.co.uk/cat/login"})
-    page = c.get("https://www.pogdesign.co.uk/cat")
-    #takes the html data from the pogdesign page
-    soup = BeautifulSoup(page.content)
+RegDate = re.compile(r'\d{1,2}_\d{1,2}_\d{4}')
+showList = []
+ShowNames = []
+data = {}
     
-    showList = []
+def CreateShowList(MyPath):
+#checks folder for TV Shows, adds them to list to compare later.
+    findit = re.compile(r'.S\d{1,2}E\d{1,2}')
+    sYear = re.compile(r'\d{4}\s')
+    for dirname, dirnames, filenames in os.walk(MyPath,topdown=False):
+        for files in filenames:
+            foundit = re.search(findit,files.upper())
+            if foundit:
+                rubbish =  foundit.group()
+                x = files.upper().find(rubbish) #x is an integer
+                MyShow =  files[:x].title() + rubbish
+                MyShow = MyShow.replace("."," ")
+                foundYear = re.search(sYear,MyShow)
+                if foundYear:
+                    MyShow = re.sub(r'\d{4}\s',"",MyShow)
+                if not files[:x].title() in ShowNames:
+                    ShowNames.append(MyShow.upper())
+    AmendList(ShowNames)
     
-    #edits the date for each day shown on the pogdesign calendar into the date formate which the datetime library uses, to see if its before today.
+def AmendList(gotShows):
+    with open("C:\Users\Turner_prize\Desktop\TVDB.txt", 'r') as infile:
+        global data
+        data = json.load(infile)
+    countr = len(data)
+    for Shows in gotShows:
+        if not Shows in data.values():
+            countr += 1
+            data[countr] = Shows
+    with open(r'C:\Users\Turner_prize\Desktop\TVDB.txt', 'w') as outfile:
+        json.dump(data, outfile)
+
+
+def GetThisMonth():
+    today = datetime.date.today()
+    NewDate= today.strftime("%m-%Y")
+    NewDate = NewDate.lstrip('0')  
+    return NewDate
+
+
+def GetLastMonth():
+    today = datetime.date.today()
+    dt = datetime.timedelta(days=1)
+    NewDate = datetime.date(today.year, today.month, 1) - dt
+    NewDate= NewDate.strftime("%m-%Y")
+    NewDate = NewDate.lstrip('0')  
+    return NewDate
+
+def Get2Months():
+
+    today = datetime.date.today()
+    dt = datetime.timedelta(days=1)
+    NewDate = datetime.date(today.year, today.month, 1) - dt
+    NewDate = datetime.date(NewDate.year, NewDate.month, 1) - dt
+    NewDate= NewDate.strftime("%m-%Y")
+    NewDate = NewDate.lstrip('0')  
+    return NewDate
+
+
+
+def GetPogDesignURL():
+        MyDate = GetThisMonth()
+        myURL = "http://www.pogdesign.co.uk/cat/" + MyDate
+        ShowRequest(myURL)
+
+def ShowRequest(website):
+    with requests.Session() as c:
+        url = "https://www.pogdesign.co.uk/cat/login"
+        uName = "enter username here"
+        pWord = "enter password here"
+        c.get(url)
+        login_data = dict(username=uName, password=pWord, sub_login="")
+        c.post(url, data=login_data, headers={"Referer":"https://www.pogdesign.co.uk/cat/login"})
+        page = c.get(website)
+        soup = BeautifulSoup(page.content, "lxml")
+
     for j in soup.find_all("div",class_="day"):
         jdate = j.get('id')
-        jdate = jdate[2:]
-        if len(jdate) == 9:
-            jdate = str(0) + jdate
-        jDay = int(jdate[0:2])
-        jMonth = int(jdate [3:5])
-        jYear = int(jdate [6:10])
-        jdate = datetime.date(jYear,jMonth,jDay)
-        
-        if jdate > datetime.date.today():
+        foundit = re.search(RegDate,jdate)
+        if foundit:
+            d = datetime.datetime.strptime(foundit.group(), '%d_%m_%Y').date()
+        if d > datetime.date.today():
             break
         
-		#theres several different types of episode 'class' as pogdesign defines them, betweeen normal episode, series premire, season premire and season finale.
-		#the below 4 loops test each type of episode class to make sure they're all picked up, and add it to a list called ShowList.
-		
-        for i in j.find_all("div",class_="ep info"):
-            fix = i.get_text()
-            showList.append(fix)
-                
-        for v in j.find_all("div",class_="ep info fep"):
-            fix = v.get_text()
-            showList.append(fix)
-                
-        for p in j.find_all("div",class_="ep info pep"):
-            fix = p.get_text()
-            showList.append(fix)
-        
-        for l in j.find_all("div",class_="ep info lep"):
-            fix = l.get_text()
-            showList.append(fix)
-                
-    #theres also a slightly different class if an episode is available today as opposed to any other date, and the below loop adds those shows to a list.            
+        GetShowString("ep info",j)
+        GetShowString("ep info fep",j)
+        GetShowString("ep info pep",j)
+        GetShowString("ep info lep",j)
+
     for j in soup.find_all("div",class_="today"):
-        for i in j.find_all("div",class_="ep"):
-            fix = i.get_text()
-            showList.append(fix)
+        GetShowString("ep",j)
+    
+    global showList
+    showList = [w.strip('\n') for w in showList]
+    showList = [w.strip() for w in showList]
+    showList = [w.replace('\n'," ") for w in showList]
 
-			
-#edits the format for each show in the list, which includes a load of unnessesary linebreaks between the show names and the episode numbers.
-#also adds the %20 in place of the spaces, ready to be added to the piratebay url as seen in the GetTorrent function			
-for count, item in enumerate(showList):
-    if '\n' in item:
-        item = item.strip('\n')
-        item = item.strip()
-        item = item.replace('\n',' ')
-        item = item.replace(' ','%20')
+    print showList
+        
+def GetShowString(iClass,showz):
+    for i in showz.find_all("div",class_=iClass):
+        fix = i.get_text()
+        print fix
+        showList.append(fix)
+        
+def AddToList(NewShow):
+    #this is similar to AmendList, but is specifically for when a torrent file is found.
+    with open("C:\Users\Turner_prize\Desktop\TVDB.txt", 'r') as infile:
+        global data
+        data = json.load(infile)
+    countr = len(data)
+    if not NewShow in data.values():
+        countr += 1
+        NewShow = NewShow.upper()
+        data[countr] = NewShow
+    with open(r'C:\Users\Turner_prize\Desktop\TVDB.txt', 'w') as outfile:
+        json.dump(data, outfile)
+    
+def GetTorrent(MyShow):
+    r = requests.get("https://thepiratebay.org/search/" + MyShow +"/0/99/208")
+    soop = BeautifulSoup(r.content, "lxml")
+    if "No hits." in soop.text:
+        print "No Torrents for " + MyShow + " found."
+    else:
+        for a in soop.find_all('a', href=True, title='Download this torrent using magnet'):
+            if a:
+                print a['href']
+                os.startfile(a['href'])
+                AddToList(MyShow)
+                break
 
-		
-#loops through each show in the list, prints the name so i can see whats being downloaded, and runs the gettorrent function on the showname.
-#then it waits 7 seconds so it has time to refresh the request each time. no particular reason for the 7 seconds, i figured it would need at least 5 but no more than 10.
-for Show in showList:
-    print Show
-    GetTorrent(Show)
-    time.sleep(7)
+def GetTorrentCount():
+    r = requests.get("http://localhost:6886/index.tmpl")
+    soup = BeautifulSoup(r.text,"lxml")
+    Torrents = soup.find(id="tab_selected")
+    Torrents = Torrents.text
+    Torrents = Torrents.replace("Downloads (","") 
+    Torrents = Torrents.replace(")","") 
+    return int(Torrents)
+
+MyDir = (r'vuze download path here')
+CreateShowList(MyDir)
+GetPogDesignURL()
+
+print showList
+
+for shows in showList:
+    if not shows.upper() in data.values():
+        print shows
+        GetTorrent(shows)
+        time.sleep(7)
